@@ -57,97 +57,223 @@ def export_mp4_to_audio(
     return 1
 
 
+# def preprocess_IEMOCAP(args):
+#     data_root = args.data_root
+#     ignore_length = args.ignore_length
+
+#     session_id = list(range(1, 6))
+
+#     samples = []
+#     labels = []
+#     iemocap2label = LABEL_MAP
+#     iemocap2label.update({"exc": 1})
+
+#     for sess_id in tqdm.tqdm(session_id):
+#         sess_path = os.path.join(data_root, "Session{}".format(sess_id))
+#         sess_autio_root = os.path.join(sess_path, "sentences/wav")
+#         sess_text_root = os.path.join(sess_path, "dialog/transcriptions")
+#         sess_label_root = os.path.join(sess_path, "dialog/EmoEvaluation")
+#         label_paths = glob.glob(os.path.join(sess_label_root, "*.txt"))
+#         for l_path in label_paths:
+#             l_name = os.path.basename(l_path)
+#             transcripts_path = os.path.join(sess_text_root, l_name)
+#             with open(transcripts_path, "r") as f:
+#                 transcripts = f.readlines()
+#                 transcripts = {
+#                     t.split(":")[0]: t.split(":")[1].strip() for t in transcripts
+#                 }
+#             with open(l_path, "r") as f:
+#                 label = f.read().split("\n")
+#                 for l in label:
+#                     if str(l).startswith("["):
+#                         data = l[1:].split()
+#                         wav_folder = data[3][:-5]
+#                         wav_name = data[3] + ".wav"
+#                         emo = data[4]
+#                         wav_path = os.path.join(sess_autio_root, wav_folder, wav_name)
+#                         wav_data, _ = sf.read(wav_path, dtype="int16")
+#                         # Ignore samples with length < ignore_length
+#                         if len(wav_data) < ignore_length:
+#                             logging.warning(
+#                                 f"Ignoring sample {wav_path} with length {len(wav_data)}"
+#                             )
+#                             continue
+#                         emo = iemocap2label.get(emo, None)
+#                         text_query = data[3] + " [{:08.4f}-{:08.4f}]".format(
+#                             float(data[0]), float(data[2][:-1])
+#                         )
+#                         if emo is not None:
+#                             text = transcripts.get(text_query, None)
+#                             if text is None:
+#                                 text_query = data[3] + " [{:08.4f}-{:08.4f}]".format(
+#                                     float(data[0]), (float(data[2][:-1]) + 0.0001)
+#                                 )
+#                                 text = transcripts.get(text_query, None)
+#                                 if text is None:
+#                                     text_query = data[
+#                                         3
+#                                     ] + " [{:08.4f}-{:08.4f}]".format(
+#                                         float(data[0]) + 0.0001, float(data[2][:-1])
+#                                     )
+#                                     text = transcripts.get(text_query, None)
+#                                     if text is None:
+#                                         print(transcripts.keys())
+#                                         print(text_query)
+#                                         raise Exception
+#                             samples.append((wav_path, text, emo))
+#                             labels.append(emo)
+
+#     # Shuffle and split
+#     temp = list(zip(samples, labels))
+#     random.Random(args.seed).shuffle(temp)
+#     samples, labels = zip(*temp)
+#     train, test_samples, train_labels, _ = train_test_split(
+#         samples, labels, test_size=0.1, random_state=args.seed
+#     )
+#     train_samples, val_samples, _, _ = train_test_split(
+#         train, train_labels, test_size=0.1, random_state=args.seed
+#     )
+#     # Save data
+#     os.makedirs(args.dataset + "_preprocessed", exist_ok=True)
+#     with open(os.path.join(args.dataset + "_preprocessed", "train.pkl"), "wb") as f:
+#         pickle.dump(train_samples, f)
+#     with open(os.path.join(args.dataset + "_preprocessed", "val.pkl"), "wb") as f:
+#         pickle.dump(val_samples, f)
+#     with open(os.path.join(args.dataset + "_preprocessed", "test.pkl"), "wb") as f:
+#         pickle.dump(test_samples, f)
+
+#     logging.info(f"Train samples: {len(train_samples)}")
+#     logging.info(f"Val samples: {len(val_samples)}")
+#     logging.info(f"Test samples: {len(test_samples)}")
+#     logging.info(f"Saved to {args.dataset + '_preprocessed'}")
+#     logging.info("Preprocessing finished successfully")
+#_________________________________________ to overcome overfitting we try to split data set session wise not random ___________________________________________________
+
+
 def preprocess_IEMOCAP(args):
+    """
+    Deterministic, session-wise split (no random):
+      Train = Session 1,2,3
+      Val   = Session 4
+      Test  = Session 5
+    """
+    from collections import defaultdict
+
     data_root = args.data_root
     ignore_length = args.ignore_length
 
-    session_id = list(range(1, 6))
+    session_ids = [1, 2, 3, 4, 5]
+    samples_by_sess = defaultdict(list)
 
-    samples = []
-    labels = []
-    iemocap2label = LABEL_MAP
-    iemocap2label.update({"exc": 1})
+    iemocap2label = LABEL_MAP.copy()
+    iemocap2label.update({"exc": 1})  # map 'excited' -> 'happy'
 
-    for sess_id in tqdm.tqdm(session_id):
-        sess_path = os.path.join(data_root, "Session{}".format(sess_id))
-        sess_autio_root = os.path.join(sess_path, "sentences/wav")
-        sess_text_root = os.path.join(sess_path, "dialog/transcriptions")
-        sess_label_root = os.path.join(sess_path, "dialog/EmoEvaluation")
+    for sess_id in tqdm.tqdm(session_ids, desc="IEMOCAP sessions"):
+        sess_path = os.path.join(data_root, f"Session{sess_id}")
+        sess_audio_root = os.path.join(sess_path, "sentences", "wav")
+        sess_text_root  = os.path.join(sess_path, "dialog", "transcriptions")
+        sess_label_root = os.path.join(sess_path, "dialog", "EmoEvaluation")
         label_paths = glob.glob(os.path.join(sess_label_root, "*.txt"))
-        for l_path in label_paths:
-            l_name = os.path.basename(l_path)
-            transcripts_path = os.path.join(sess_text_root, l_name)
-            with open(transcripts_path, "r") as f:
-                transcripts = f.readlines()
-                transcripts = {
-                    t.split(":")[0]: t.split(":")[1].strip() for t in transcripts
-                }
-            with open(l_path, "r") as f:
-                label = f.read().split("\n")
-                for l in label:
-                    if str(l).startswith("["):
-                        data = l[1:].split()
-                        wav_folder = data[3][:-5]
-                        wav_name = data[3] + ".wav"
-                        emo = data[4]
-                        wav_path = os.path.join(sess_autio_root, wav_folder, wav_name)
-                        wav_data, _ = sf.read(wav_path, dtype="int16")
-                        # Ignore samples with length < ignore_length
-                        if len(wav_data) < ignore_length:
-                            logging.warning(
-                                f"Ignoring sample {wav_path} with length {len(wav_data)}"
-                            )
-                            continue
-                        emo = iemocap2label.get(emo, None)
-                        text_query = data[3] + " [{:08.4f}-{:08.4f}]".format(
-                            float(data[0]), float(data[2][:-1])
-                        )
-                        if emo is not None:
-                            text = transcripts.get(text_query, None)
-                            if text is None:
-                                text_query = data[3] + " [{:08.4f}-{:08.4f}]".format(
-                                    float(data[0]), (float(data[2][:-1]) + 0.0001)
-                                )
-                                text = transcripts.get(text_query, None)
-                                if text is None:
-                                    text_query = data[
-                                        3
-                                    ] + " [{:08.4f}-{:08.4f}]".format(
-                                        float(data[0]) + 0.0001, float(data[2][:-1])
-                                    )
-                                    text = transcripts.get(text_query, None)
-                                    if text is None:
-                                        print(transcripts.keys())
-                                        print(text_query)
-                                        raise Exception
-                            samples.append((wav_path, text, emo))
-                            labels.append(emo)
 
-    # Shuffle and split
-    temp = list(zip(samples, labels))
-    random.Random(args.seed).shuffle(temp)
-    samples, labels = zip(*temp)
-    train, test_samples, train_labels, _ = train_test_split(
-        samples, labels, test_size=0.1, random_state=args.seed
-    )
-    train_samples, val_samples, _, _ = train_test_split(
-        train, train_labels, test_size=0.1, random_state=args.seed
-    )
-    # Save data
-    os.makedirs(args.dataset + "_preprocessed", exist_ok=True)
-    with open(os.path.join(args.dataset + "_preprocessed", "train.pkl"), "wb") as f:
+        for l_path in label_paths:
+            base = os.path.basename(l_path)
+            transcripts_path = os.path.join(sess_text_root, base)
+
+            # load transcripts (key: "utt [start-end]" -> text)
+            with open(transcripts_path, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+            transcripts = {}
+            for t in lines:
+                if ":" in t:
+                    k, v = t.split(":", 1)
+                    transcripts[k.strip()] = v.strip()
+
+            with open(l_path, "r", encoding="utf-8", errors="ignore") as f:
+                label_lines = f.read().splitlines()
+
+            for l in label_lines:
+                if not str(l).startswith("["):
+                    continue
+                data = l[1:].split()
+                # [start  something  end] utt_id emo ...
+                try:
+                    start = float(data[0])
+                    end   = float(data[2][:-1])   # trim trailing ']'
+                except Exception:
+                    continue
+
+                utt_id    = data[3]
+                emo_str   = data[4]
+                wav_folder = utt_id[:-5]
+                wav_name   = utt_id + ".wav"
+                wav_path   = os.path.join(sess_audio_root, wav_folder, wav_name)
+
+                if not os.path.exists(wav_path):
+                    logging.warning(f"Missing WAV: {wav_path}")
+                    continue
+
+                # length filter
+                try:
+                    wav_data, _ = sf.read(wav_path, dtype="int16")
+                except Exception as e:
+                    logging.warning(f"Read fail {wav_path}: {e}")
+                    continue
+                if ignore_length and len(wav_data) < ignore_length:
+                    logging.warning(f"Ignoring sample {wav_path} with length {len(wav_data)}")
+                    continue
+
+                emo = iemocap2label.get(emo_str, None)
+                if emo is None:
+                    continue
+
+                # transcript key with small eps fallbacks
+                key_base = f"{utt_id} [{{:08.4f}}-{{:08.4f}}]"
+                candidates = [
+                    key_base.format(start, end),
+                    key_base.format(start, end + 1e-4),
+                    key_base.format(start + 1e-4, end),
+                ]
+                text = None
+                for k in candidates:
+                    text = transcripts.get(k)
+                    if text is not None:
+                        break
+                if text is None:
+                    logging.warning(f"No transcript for {utt_id} in {transcripts_path}")
+                    continue
+
+                samples_by_sess[sess_id].append((os.path.abspath(wav_path), text, emo))
+
+    # --- Session-wise deterministic split (no random) ---
+    train_sessions = [1, 2, 3]
+    val_sessions   = [4]
+    test_sessions  = [5]
+
+    def _gather(sessions):
+        out = []
+        for s in sessions:
+            out.extend(samples_by_sess.get(s, []))
+        return out
+
+    train_samples = _gather(train_sessions)
+    val_samples   = _gather(val_sessions)
+    test_samples  = _gather(test_sessions)
+
+    # Save
+    out_dir = args.dataset + "_preprocessed"
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, "train.pkl"), "wb") as f:
         pickle.dump(train_samples, f)
-    with open(os.path.join(args.dataset + "_preprocessed", "val.pkl"), "wb") as f:
+    with open(os.path.join(out_dir, "val.pkl"), "wb") as f:
         pickle.dump(val_samples, f)
-    with open(os.path.join(args.dataset + "_preprocessed", "test.pkl"), "wb") as f:
+    with open(os.path.join(out_dir, "test.pkl"), "wb") as f:
         pickle.dump(test_samples, f)
 
     logging.info(f"Train samples: {len(train_samples)}")
-    logging.info(f"Val samples: {len(val_samples)}")
-    logging.info(f"Test samples: {len(test_samples)}")
-    logging.info(f"Saved to {args.dataset + '_preprocessed'}")
+    logging.info(f"Val samples:   {len(val_samples)}")
+    logging.info(f"Test samples:  {len(test_samples)}")
+    logging.info(f"Saved to {out_dir}")
     logging.info("Preprocessing finished successfully")
-
 
 def preprocess_ESD(args):
     esd2label = {

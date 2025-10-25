@@ -27,6 +27,34 @@ torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+class CSVLogger:
+    """Per-epoch metrics ko logs/history.csv + train.log me likhne ke liye."""
+    def __init__(self, log_dir):
+        self.csv_path = os.path.join(log_dir, "history.csv")
+
+    def on_epoch_end(self, epoch, logs: dict):
+        # logs: {"train_loss":..., "train_acc":..., "val_loss":..., "val_acc":...}
+        import csv, math
+        keys = ["epoch","train_loss","train_acc","val_loss","val_acc"]
+        row = {
+            "epoch": epoch + 1,
+            "train_loss": float(logs.get("train_loss", "nan")),
+            "train_acc":  float(logs.get("train_acc", "nan")),
+            "val_loss":   float(logs.get("val_loss", "nan")),
+            "val_acc":    float(logs.get("val_acc", "nan")),
+        }
+        write_header = (not os.path.exists(self.csv_path)) or os.path.getsize(self.csv_path)==0
+        with open(self.csv_path, "a", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=keys)
+            if write_header: w.writeheader()
+            w.writerow(row)
+
+        # plain-text lines (eval.py regex ke compatible)
+        if not any(map(math.isnan, [row["train_loss"], row["train_acc"]])):
+            logging.info(f"Epoch {row['epoch']} - loss: {row['train_loss']:.4f}")
+            logging.info(f"Epoch {row['epoch']} - acc: {row['train_acc']:.4f}")
+        if not any(map(math.isnan, [row["val_loss"], row["val_acc"]])):
+            logging.info(f"Validation: loss: {row['val_loss']:.4f} acc: {row['val_acc']:.4f}")
 
 def main(cfg: Config):
     logging.info("Initializing model...")
@@ -48,6 +76,12 @@ def main(cfg: Config):
     weight_dir = os.path.join(checkpoint_dir, "weights")
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(weight_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "train.log")
+    fh = logging.FileHandler(log_file)
+    fh.setLevel(logging.INFO)
+    fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    fh.setFormatter(fmt)
+    logging.getLogger().addHandler(fh)
     cfg.save(cfg)
 
     try:
@@ -91,9 +125,10 @@ def main(cfg: Config):
     if cfg.resume:
         trainer.load_all_states(cfg.resume_path)
 
+   
+    csv_logger = CSVLogger(log_dir)
     trainer.compile(optimizer=optimizer, scheduler=lr_scheduler)
-    trainer.fit(train_ds, cfg.num_epochs, test_ds, callbacks=[ckpt_callback])
-
+    trainer.fit(train_ds, cfg.num_epochs, test_ds, callbacks=[ckpt_callback, csv_logger])
 
 def arg_parser():
     parser = argparse.ArgumentParser()

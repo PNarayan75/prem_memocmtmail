@@ -25,22 +25,41 @@ LABEL_MAP = ["Angry", "Happy", "Sad", "Neutral"]
 
 def parse_train_log(log_path):
     epochs, train_loss, train_acc, val_loss, val_acc = [], [], [], [], []
+    current_epoch = None
+
     with open(log_path, "r") as f:
         for line in f:
             line = line.strip()
-            # Training line: "Epoch X: loss: Y | acc: Z"
-            train_match = re.search(r"Epoch (\d+): loss: ([\d.]+) \| acc: ([\d.]+)", line)
-            if train_match:
-                epochs.append(int(train_match.group(1)))
-                train_loss.append(float(train_match.group(2)))
-                train_acc.append(float(train_match.group(3)))
+
+            # Epoch X - loss: Y
+            loss_match = re.search(r"Epoch (\d+) - loss: ([\d.]+)", line)
+            if loss_match:
+                epoch = int(loss_match.group(1))
+                loss = float(loss_match.group(2))
+                if current_epoch is None:
+                    current_epoch = epoch
+                if epoch == current_epoch:
+                    train_loss.append(loss)
                 continue
-            # Validation line: "Validation: loss: Y | acc: Z"
-            val_match = re.search(r"Validation: loss: ([\d.]+) \| acc: ([\d.]+)", line)
+
+            # Epoch X - acc: Y
+            acc_match = re.search(r"Epoch (\d+) - acc: ([\d.]+)", line)
+            if acc_match:
+                epoch = int(acc_match.group(1))
+                acc = float(acc_match.group(2))
+                if epoch == current_epoch:
+                    train_acc.append(acc)
+                    epochs.append(epoch)
+                continue
+
+            # Validation: loss: X acc: Y
+            val_match = re.search(r"Validation: loss: ([\d.]+) acc: ([\d.]+)", line)
             if val_match:
                 val_loss.append(float(val_match.group(1)))
                 val_acc.append(float(val_match.group(2)))
-    print(f"Parsed: {len(epochs)} epochs, train_loss={len(train_loss)}, val_loss={len(val_loss)}")  # Debug
+                current_epoch = None
+                continue
+
     return epochs, train_loss, train_acc, val_loss, val_acc
 
 def model_eval(cfg, ckpt_path, all_state_dict=True):

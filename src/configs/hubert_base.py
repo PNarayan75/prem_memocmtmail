@@ -1,3 +1,4 @@
+# configs/hubert_base_safe.py
 from configs.base import Config as BaseConfig
 
 class Config(BaseConfig):
@@ -10,12 +11,10 @@ class Config(BaseConfig):
     def add_args(self, **kwargs):
         self.batch_size = 1
         self.num_epochs = 30
+        self.accumulation_steps = 8  # ← जोड़ा (effective batch=8)
 
         self.loss_type = "CrossEntropyLoss"
-
-       
         self.checkpoint_dir = "/kaggle/working/checkpoints/IEMOCAP"
-
         self.model_type = "MemoCMT"
 
         self.text_encoder_type = "bert"
@@ -27,16 +26,15 @@ class Config(BaseConfig):
         self.audio_unfreeze = False
 
         self.fusion_dim = 768
+        self.dropout = 0.3  # ← जोड़ा (overfitting रोकने के लिए)
 
-        # Dataset
+        # CORRECT DATA ROOT
+        self.data_root = "/kaggle/input/iemocap-preprocessed/IEMOCAP_preprocessed"
         self.data_name = "IEMOCAP"
-       
-        self.data_root = "/kaggle/working/prem_memocmtmail/IEMOCAP_preprocessed"
         self.data_valid = "val.pkl"
-        self.text_max_length = 297
+        self.text_max_length = 128   # 297 → 128 (memory बचाने के लिए)
         self.audio_max_length = 128000
 
-        # Config name
         self.name = f"{self.model_type}_{self.text_encoder_type}_{self.audio_encoder_type}"
 
         for key, value in kwargs.items():

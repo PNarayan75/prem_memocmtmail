@@ -15,7 +15,7 @@ class Config(BaseConfig):
         self.learning_rate = 1e-4 #new add kiya h
         self.audio_unfreeze = True
         self.text_unfreeze = True
-        self.dropout = 0.3
+        self.dropout = 0.1
         self.loss_type = "CrossEntropyLoss" 
         self.checkpoint_dir = "/kaggle/working/checkpoints/IEMOCAP"
         self.model_type = "MemoCMT"

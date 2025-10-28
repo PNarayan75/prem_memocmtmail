@@ -9,7 +9,7 @@ class Config(BaseConfig):
 
     def add_args(self, **kwargs):
         self.batch_size = 1
-        self.num_epochs = 30
+        self.num_epochs = 3
 
         self.loss_type = "CrossEntropyLoss"
 

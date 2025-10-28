@@ -27,7 +27,13 @@ class MemoCMT(nn.Module):
         # Freeze/Unfreeze the audio module
         for param in self.audio_encoder.parameters():
             param.requires_grad = cfg.audio_unfreeze
-
+     #prem Unfreeze + Different LR
+        if cfg.text_unfreeze:
+                for param in self.text_encoder.parameters():
+                    param.requires_grad = True
+        if cfg.audio_unfreeze:
+            for param in self.audio_encoder.parameters():
+                param.requires_grad = True
         # Fusion module
         self.text_attention = nn.MultiheadAttention(
             embed_dim=cfg.text_encoder_dim,

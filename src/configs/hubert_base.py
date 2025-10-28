@@ -6,27 +6,28 @@ class Config(BaseConfig):
         self.add_args()
         for key, value in kwargs.items():
             setattr(self, key, value)
-
+        
     def add_args(self, **kwargs):
-        self.batch_size = 1
-        self.num_epochs = 3
-
-        self.loss_type = "CrossEntropyLoss"
-
-       
+        # self.batch_size = 1
+        # self.num_epochs = 3
+        self.batch_size = 8
+        self.num_epochs = 30  
+        self.learning_rate = 1e-4 #new add kiya h
+        self.audio_unfreeze = True
+        self.text_unfreeze = True
+        self.dropout = 0.1
+        self.loss_type = "CrossEntropyLoss" 
         self.checkpoint_dir = "/kaggle/working/checkpoints/IEMOCAP"
-
         self.model_type = "MemoCMT"
-
         self.text_encoder_type = "bert"
         self.text_encoder_dim = 768
         self.text_unfreeze = False
-
         self.audio_encoder_type = "hubert_base"
         self.audio_encoder_dim = 768
         self.audio_unfreeze = False
-
         self.fusion_dim = 768
+
+
 
         # Dataset
         self.data_name = "IEMOCAP"

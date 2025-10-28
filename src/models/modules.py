@@ -19,7 +19,12 @@ def build_bert_encoder() -> nn.Module:
     )
     bert = BertModel.from_pretrained("bert-base-uncased", config=config)
     return bert
+# src/models/modules.py → AudioEncoder class में
 
+elif encoder_type == "unispeech-sat-base-plus":
+    from transformers import UniSpeechSatModel
+    model = UniSpeechSatModel.from_pretrained("microsoft/unispeech-sat-base-plus")
+    dim = 768
 
 class HuBertBase(nn.Module):
     def __init__(self, **kwargs):

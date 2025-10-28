@@ -1,3 +1,5 @@
+# src/models/modules.py
+import torch
 import torch.nn as nn
 import torchaudio
 from transformers import (
@@ -7,6 +9,7 @@ from transformers import (
     RobertaModel,
     FocalNetConfig,
     FocalNetModel,
+    UniSpeechSatModel,   # ← यहाँ import करो
 )
 
 from configs.base import Config
@@ -19,16 +22,11 @@ def build_bert_encoder() -> nn.Module:
     )
     bert = BertModel.from_pretrained("bert-base-uncased", config=config)
     return bert
-# src/models/modules.py → AudioEncoder class में
 
-elif encoder_type == "unispeech-sat-base-plus":
-    from transformers import UniSpeechSatModel
-    model = UniSpeechSatModel.from_pretrained("microsoft/unispeech-sat-base-plus")
-    dim = 768
 
 class HuBertBase(nn.Module):
     def __init__(self, **kwargs):
-        super(HuBertBase, self).__init__(**kwargs)
+        super(HuBertBase, self).__init__()
         bundle = torchaudio.pipelines.HUBERT_BASE
         self.model = bundle.get_model()
 
@@ -43,32 +41,32 @@ def build_hubert_base_encoder(cfg: Config) -> nn.Module:
 
 
 def build_audio_encoder(cfg: Config) -> nn.Module:
-    """A function to build audio encoder
+    """A function to build audio encoder"""
+    encoder_type = cfg.audio_encoder_type
 
-    Args:
-        cfg (Config): Config object
+    if encoder_type == "hubert_base":
+        model = build_hubert_base_encoder(cfg)
+        dim = 768
 
-    Returns:
-        nn.Module: Audio encoder
-    """
-    type = cfg.audio_encoder_type
+    elif encoder_type == "unispeech-sat-base-plus":
+        model = UniSpeechSatModel.from_pretrained("microsoft/unispeech-sat-base-plus")
+        dim = 768
 
-    encoders = {
-        "hubert_base": build_hubert_base_encoder,
-    }
-    assert type in encoders.keys(), f"Invalid audio encoder type: {type}"
-    return encoders[type](cfg)
+    elif encoder_type == "hubert_large":
+        from transformers import HubertModel
+        model = HubertModel.from_pretrained("facebook/hubert-large-ls960-ft")
+        dim = 1024
+
+    else:
+        raise ValueError(f"Invalid audio encoder type: {encoder_type}")
+
+    # Set dim in config
+    cfg.audio_encoder_dim = dim
+    return model
 
 
 def build_text_encoder(type: str = "bert") -> nn.Module:
-    """A function to build text encoder
-
-    Args:
-        type (str, optional): Type of text encoder. Defaults to "bert".
-
-    Returns:
-        torch.nn.Module: Text encoder
-    """
+    """A function to build text encoder"""
     encoders = {
         "bert": build_bert_encoder,
     }

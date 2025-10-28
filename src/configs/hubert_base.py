@@ -15,16 +15,14 @@ class Config(BaseConfig):
         self.learning_rate = 1e-4 #new add kiya h
         self.audio_unfreeze = True
         self.text_unfreeze = True
-        self.dropout = 0.1
+        self.dropout = 0.3
         self.loss_type = "CrossEntropyLoss" 
         self.checkpoint_dir = "/kaggle/working/checkpoints/IEMOCAP"
         self.model_type = "MemoCMT"
         self.text_encoder_type = "bert"
         self.text_encoder_dim = 768
-        self.text_unfreeze = False
         self.audio_encoder_type = "hubert_base"
         self.audio_encoder_dim = 768
-        self.audio_unfreeze = False
         self.fusion_dim = 768
 
 
@@ -34,8 +32,8 @@ class Config(BaseConfig):
        
         self.data_root = "/kaggle/working/prem_memocmtmail/IEMOCAP_preprocessed"
         self.data_valid = "val.pkl"
-        self.text_max_length = 297
-        self.audio_max_length = 128000
+        self.text_max_length = 128
+        self.audio_max_length = 80000
 
         # Config name
         self.name = f"{self.model_type}_{self.text_encoder_type}_{self.audio_encoder_type}"

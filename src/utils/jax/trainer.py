@@ -122,6 +122,7 @@ class FlaxTrainer(ABC, nn.Module):
             for key, value in eval_logs.items():
                 postfix += f"{key}: {np.mean(value):.4f} "
                 mlflow.log_metric(f"val_{key}", np.mean(value))
+            logger.info("_______________________________________________________________________________________________________")
             logger.info("Validation: " + postfix)
 
             # Callbacks

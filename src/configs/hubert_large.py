@@ -33,8 +33,8 @@ class Config(BaseConfig):
         self.data_root = "/kaggle/working/prem_memocmtmail/IEMOCAP_preprocessed"
         self.data_name = "IEMOCAP"
         self.data_valid = "val.pkl"
-        self.text_max_length = 128
-        self.audio_max_length = 160000  # 10 sec @16kHz
+        self.text_max_length = 297
+        self.audio_max_length = 128000  # 10 sec @16kHz
 
         self.name = f"{self.model_type}_bert_hubert_large_ft"
 

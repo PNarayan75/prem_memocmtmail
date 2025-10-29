@@ -10,6 +10,7 @@ from transformers import (
     FocalNetConfig,
     FocalNetModel,
     UniSpeechSatModel,   # ← यहाँ import करो
+    HubertModel  
 )
 
 from configs.base import Config
@@ -33,7 +34,14 @@ class HuBertBase(nn.Module):
     def forward(self, x):
         features, _ = self.model(x)
         return features
+class HuBertLargeWrapper(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.model = HubertModel.from_pretrained("facebook/hubert-large-ls960-ft")
 
+    def forward(self, x):
+        outputs = self.model(x)
+        return outputs.last_hidden_state  # (B, T, 1024)
 
 def build_hubert_base_encoder(cfg: Config) -> nn.Module:
     """A function to build hubert encoder"""
@@ -47,7 +55,9 @@ def build_audio_encoder(cfg: Config) -> nn.Module:
     if encoder_type == "hubert_base":
         model = build_hubert_base_encoder(cfg)
         dim = 768
-
+    elif encoder_type == "hubert_large":
+        model = HuBertLargeWrapper()
+        dim = 1024
     elif encoder_type == "unispeech-sat-base-plus":
         base_model = UniSpeechSatModel.from_pretrained("microsoft/unispeech-sat-base-plus")
         dim = 768

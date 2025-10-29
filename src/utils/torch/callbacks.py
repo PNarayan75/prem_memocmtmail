@@ -112,9 +112,9 @@ class CheckpointsCallback(Callback):
         elif isValPhase and self.save_best_val:
             for k, v in logs.items():
                 if k not in self.best_val:
-                    logger.info(
-                        "Model {} improve from inf to {}, Saving model...".format(k, v)
-                    )
+                    # logger.info(
+                    #     "Model {} improve from inf to {}, Saving model...".format(k, v)
+                    # )
                     self.best_val[k] = v
                     os.makedirs(
                         os.path.join(self.checkpoint_dir, "best_{}".format(k)),
@@ -132,11 +132,11 @@ class CheckpointsCallback(Callback):
                 else:
                     if k.startswith("loss"):
                         if v < self.best_val[k]:
-                            logger.info(
-                                "Model {} improve from {} to {}, Saving model...".format(
-                                    k, self.best_val[k], v
-                                )
-                            )
+                            # logger.info(
+                            #     "Model {} improve from {} to {}, Saving model...".format(
+                            #         k, self.best_val[k], v
+                            #     )
+                            # )
                             self.best_val[k] = v
                             os.makedirs(
                                 os.path.join(self.checkpoint_dir, "best_{}".format(k)),
@@ -159,11 +159,11 @@ class CheckpointsCallback(Callback):
                                 )
                     else:
                         if v > self.best_val[k]:
-                            logger.info(
-                                "Model {} improve from {} to {}, Saving model...".format(
-                                    k, self.best_val[k], v
-                                )
-                            )
+                            # logger.info(
+                            #     "Model {} improve from {} to {}, Saving model...".format(
+                            #         k, self.best_val[k], v
+                            #     )
+                            # )
                             self.best_val[k] = v
                             os.makedirs(
                                 os.path.join(self.checkpoint_dir, "best_{}".format(k)),

@@ -49,8 +49,16 @@ def build_audio_encoder(cfg: Config) -> nn.Module:
         dim = 768
 
     elif encoder_type == "unispeech-sat-base-plus":
-        model = UniSpeechSatModel.from_pretrained("microsoft/unispeech-sat-base-plus")
+        base_model = UniSpeechSatModel.from_pretrained("microsoft/unispeech-sat-base-plus")
         dim = 768
+        class UniSpeechWrapper(nn.Module):
+            def __init__(self, model):
+                super().__init__()
+                self.model = model
+            def forward(self, x):
+                return self.model(x).last_hidden_state  # (B, T, 768)
+    
+        model = UniSpeechWrapper(base_model)
 
     elif encoder_type == "hubert_large":
         from transformers import HubertModel

@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 
 from configs.base import Config
-
 from .modules import build_audio_encoder, build_text_encoder
 
 
@@ -27,30 +26,36 @@ class MemoCMT(nn.Module):
         # Freeze/Unfreeze the audio module
         for param in self.audio_encoder.parameters():
             param.requires_grad = cfg.audio_unfreeze
-     #prem Unfreeze + Different LR
+
+        # Unfreeze + Different LR (optional)
         if cfg.text_unfreeze:
-                for param in self.text_encoder.parameters():
-                    param.requires_grad = True
+            for param in self.text_encoder.parameters():
+                param.requires_grad = True
         if cfg.audio_unfreeze:
             for param in self.audio_encoder.parameters():
                 param.requires_grad = True
+
+        # PROJECT TO SAME DIM (मुख्य फिक्स!)
+        self.audio_proj = nn.Linear(cfg.audio_encoder_dim, cfg.fusion_dim)
+        self.text_proj = nn.Linear(cfg.text_encoder_dim, cfg.fusion_dim)
+
         # Fusion module
         self.text_attention = nn.MultiheadAttention(
-            embed_dim=cfg.text_encoder_dim,
+            embed_dim=cfg.fusion_dim,  # ← अब fusion_dim
             num_heads=cfg.num_attention_head,
             dropout=cfg.dropout,
             batch_first=True,
         )
-        self.text_linear = nn.Linear(cfg.text_encoder_dim, cfg.fusion_dim)
+        self.text_linear = nn.Linear(cfg.fusion_dim, cfg.fusion_dim)
         self.text_layer_norm = nn.LayerNorm(cfg.fusion_dim)
 
         self.audio_attention = nn.MultiheadAttention(
-            embed_dim=cfg.audio_encoder_dim,
+            embed_dim=cfg.fusion_dim,  # ← अब fusion_dim
             num_heads=cfg.num_attention_head,
             dropout=cfg.dropout,
             batch_first=True,
         )
-        self.audio_linear = nn.Linear(cfg.audio_encoder_dim, cfg.fusion_dim)
+        self.audio_linear = nn.Linear(cfg.fusion_dim, cfg.fusion_dim)
         self.audio_layer_norm = nn.LayerNorm(cfg.fusion_dim)
 
         self.fusion_attention = nn.MultiheadAttention(
@@ -76,55 +81,54 @@ class MemoCMT(nn.Module):
 
         self.fusion_head_output_type = cfg.fusion_head_output_type
 
+
     def forward(
         self,
         input_text: torch.Tensor,
         input_audio: torch.Tensor,
         output_attentions: bool = False,
     ):
+        # Text embeddings
+        text_embeddings = self.text_encoder(input_text).last_hidden_state  # (B, T, 768)
 
-        text_embeddings = self.text_encoder(input_text).last_hidden_state
+        # Audio embeddings
         if len(input_audio.size()) != 2:
             batch_size, num_samples = input_audio.size(0), input_audio.size(1)
-            audio_embeddings = self.audio_encoder(
-                input_audio.view(-1, *input_audio.shape[2:])
-            ).last_hidden_state
-            audio_embeddings = audio_embeddings.mean(1)
-            audio_embeddings = audio_embeddings.view(
-                batch_size, num_samples, *audio_embeddings.shape[1:]
-            )
+            audio_flat = input_audio.view(-1, *input_audio.shape[2:])
+            audio_out = self.audio_encoder(audio_flat)
+            audio_embeddings = audio_out.last_hidden_state if hasattr(audio_out, "last_hidden_state") else audio_out
+            audio_embeddings = audio_embeddings.mean(1)  # (B*num, D)
+            audio_embeddings = audio_embeddings.view(batch_size, num_samples, -1)
         else:
-            audio_embeddings = self.audio_encoder(input_audio)
+            audio_out = self.audio_encoder(input_audio)
+            audio_embeddings = audio_out.last_hidden_state if hasattr(audio_out, "last_hidden_state") else audio_out  # (B, T, D)
 
-        ## Fusion Module
+        # PROJECT TO fusion_dim
+        text_emb_proj = self.text_proj(text_embeddings)      # (B, T, fusion_dim)
+        audio_emb_proj = self.audio_proj(audio_embeddings)   # (B, T, fusion_dim)
 
-        # Text cross attenttion text Q audio , K and V text
+        ## Fusion Module (SAFE VERSION)
+        # Text cross attention: Q=audio_proj, K/V=text_proj
         text_attention, text_attn_output_weights = self.text_attention(
-            audio_embeddings,
-            text_embeddings,
-            text_embeddings,
-            average_attn_weights=False,
+            audio_emb_proj, text_emb_proj, text_emb_proj, average_attn_weights=False
         )
         text_linear = self.text_linear(text_attention)
         text_norm = self.text_layer_norm(text_linear)
         text_norm = self.dropout(text_norm)
 
-        # Audio cross attetntion Q text, K and V audio
+        # Audio cross attention: Q=text_proj, K/V=audio_proj
         audio_attention, audio_attn_output_weights = self.audio_attention(
-            text_embeddings,
-            audio_embeddings,
-            audio_embeddings,
-            average_attn_weights=False,
+            text_emb_proj, audio_emb_proj, audio_emb_proj, average_attn_weights=False
         )
         audio_linear = self.audio_linear(audio_attention)
         audio_norm = self.audio_layer_norm(audio_linear)
         audio_norm = self.dropout(audio_norm)
 
-        # Concatenate the text and audio embeddings
-        fusion_norm = torch.cat((text_norm, audio_norm), 1)
+        # Concatenate
+        fusion_norm = torch.cat((text_norm, audio_norm), dim=1)
         fusion_norm = self.dropout(fusion_norm)
 
-        # Get classification output
+        # Classification output
         if self.fusion_head_output_type == "cls":
             cls_token_final_fusion_norm = fusion_norm[:, 0, :]
         elif self.fusion_head_output_type == "mean":
@@ -153,6 +157,7 @@ class MemoCMT(nn.Module):
 
         return out, cls_token_final_fusion_norm, text_norm, audio_norm
 
+
     def encode_audio(self, audio: torch.Tensor):
         return self.audio_encoder(audio)
 
@@ -160,22 +165,16 @@ class MemoCMT(nn.Module):
         return self.text_encoder(input_ids).last_hidden_state
 
 
+# TextOnly और AudioOnly – कोई बदलाव नहीं
 class TextOnly(nn.Module):
-    def __init__(
-        self,
-        cfg: Config,
-        device: str = "cpu",
-    ):
+    def __init__(self, cfg: Config, device: str = "cpu"):
         super(TextOnly, self).__init__()
-        # Text module
         self.text_encoder = build_text_encoder(cfg.text_encoder_type)
         self.text_encoder.to(device)
-        # Freeze/Unfreeze the text module
         for param in self.text_encoder.parameters():
             param.requires_grad = cfg.text_unfreeze
 
         self.dropout = nn.Dropout(cfg.dropout)
-
         self.linear_layer_output = cfg.linear_layer_output
 
         previous_dim = cfg.text_encoder_dim
@@ -185,33 +184,24 @@ class TextOnly(nn.Module):
                 previous_dim = linear_layer
 
         self.classifer = nn.Linear(previous_dim, cfg.num_classes)
-
         self.fusion_head_output_type = cfg.fusion_head_output_type
 
-    def forward(
-        self,
-        input_text: torch.Tensor,
-        input_audio: torch.Tensor,
-        output_attentions: bool = False,
-    ):
-
+    def forward(self, input_text, input_audio, output_attentions=False):
         text_embeddings = self.text_encoder(input_text).last_hidden_state
         fusion_norm = self.dropout(text_embeddings)
 
-        # Get classification output
         if self.fusion_head_output_type == "cls":
-            cls_token_final_fusion_norm = fusion_norm[:, 0, :]
+            cls_token = fusion_norm[:, 0, :]
         elif self.fusion_head_output_type == "mean":
-            cls_token_final_fusion_norm = fusion_norm.mean(dim=1)
+            cls_token = fusion_norm.mean(dim=1)
         elif self.fusion_head_output_type == "max":
-            cls_token_final_fusion_norm = fusion_norm.max(dim=1)[0]
+            cls_token = fusion_norm.max(dim=1)[0]
         elif self.fusion_head_output_type == "min":
-            cls_token_final_fusion_norm = fusion_norm.min(dim=1)[0]
+            cls_token = fusion_norm.min(dim=1)[0]
         else:
             raise ValueError("Invalid fusion head output type")
 
-        # Classification head
-        x = cls_token_final_fusion_norm
+        x = cls_token
         x = self.dropout(x)
         for i, _ in enumerate(self.linear_layer_output):
             x = getattr(self, f"linear_{i}")(x)
@@ -219,28 +209,19 @@ class TextOnly(nn.Module):
         x = self.dropout(x)
         out = self.classifer(x)
 
-        return out, cls_token_final_fusion_norm
+        return out, cls_token
 
 
 class AudioOnly(nn.Module):
-    def __init__(
-        self,
-        cfg: Config,
-        device: str = "cpu",
-    ):
+    def __init__(self, cfg: Config, device: str = "cpu"):
         super(AudioOnly, self).__init__()
-
-        # Audio module
         self.audio_encoder = build_audio_encoder(cfg)
         self.audio_encoder.to(device)
-
-        # Freeze/Unfreeze the audio module
         for param in self.audio_encoder.parameters():
             param.requires_grad = cfg.audio_unfreeze
 
-        self.linear_layer_output = cfg.linear_layer_output
-
         self.dropout = nn.Dropout(cfg.dropout)
+        self.linear_layer_output = cfg.linear_layer_output
 
         previous_dim = cfg.audio_encoder_dim
         if len(cfg.linear_layer_output) > 0:
@@ -249,44 +230,34 @@ class AudioOnly(nn.Module):
                 previous_dim = linear_layer
 
         self.classifer = nn.Linear(previous_dim, cfg.num_classes)
-
         self.fusion_head_output_type = cfg.fusion_head_output_type
 
-    def forward(
-        self,
-        input_text: torch.Tensor,
-        input_audio: torch.Tensor,
-        output_attentions: bool = False,
-    ):
-
+    def forward(self, input_text, input_audio, output_attentions=False):
         if len(input_audio.size()) != 2:
             batch_size, num_samples = input_audio.size(0), input_audio.size(1)
-            audio_embeddings = self.audio_encoder(
-                input_audio.view(-1, *input_audio.shape[2:])
-            ).last_hidden_state
+            audio_flat = input_audio.view(-1, *input_audio.shape[2:])
+            audio_out = self.audio_encoder(audio_flat)
+            audio_embeddings = audio_out.last_hidden_state if hasattr(audio_out, "last_hidden_state") else audio_out
             audio_embeddings = audio_embeddings.mean(1)
-            audio_embeddings = audio_embeddings.view(
-                batch_size, num_samples, *audio_embeddings.shape[1:]
-            )
+            audio_embeddings = audio_embeddings.view(batch_size, num_samples, -1)
         else:
-            audio_embeddings = self.audio_encoder(input_audio)
+            audio_out = self.audio_encoder(input_audio)
+            audio_embeddings = audio_out.last_hidden_state if hasattr(audio_out, "last_hidden_state") else audio_out
 
         fusion_norm = self.dropout(audio_embeddings)
 
-        # Get classification output
         if self.fusion_head_output_type == "cls":
-            cls_token_final_fusion_norm = fusion_norm[:, 0, :]
+            cls_token = fusion_norm[:, 0, :]
         elif self.fusion_head_output_type == "mean":
-            cls_token_final_fusion_norm = fusion_norm.mean(dim=1)
+            cls_token = fusion_norm.mean(dim=1)
         elif self.fusion_head_output_type == "max":
-            cls_token_final_fusion_norm = fusion_norm.max(dim=1)[0]
+            cls_token = fusion_norm.max(dim=1)[0]
         elif self.fusion_head_output_type == "min":
-            cls_token_final_fusion_norm = fusion_norm.min(dim=1)[0]
+            cls_token = fusion_norm.min(dim=1)[0]
         else:
             raise ValueError("Invalid fusion head output type")
 
-        # Classification head
-        x = cls_token_final_fusion_norm
+        x = cls_token
         x = self.dropout(x)
         for i, _ in enumerate(self.linear_layer_output):
             x = getattr(self, f"linear_{i}")(x)
@@ -294,4 +265,4 @@ class AudioOnly(nn.Module):
         x = self.dropout(x)
         out = self.classifer(x)
 
-        return out, cls_token_final_fusion_norm
+        return out, cls_token

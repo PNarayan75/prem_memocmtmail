@@ -9,8 +9,8 @@ class Config(BaseConfig):
             setattr(self, key, value)
 
     def add_args(self, **kwargs):
-        self.batch_size = 1
-        self.num_epochs = 70
+        self.batch_size = 8
+        self.num_epochs = 40
         self.accumulation_steps = 8  # ← जोड़ा (effective batch=8)
 
         self.loss_type = "CrossEntropyLoss"
